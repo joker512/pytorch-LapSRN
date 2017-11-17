@@ -14,7 +14,8 @@ import os
 parser = argparse.ArgumentParser(description="PyTorch LapSRN Test")
 parser.add_argument("--cuda", action="store_true", help="use cuda?")
 parser.add_argument("--model", default="model/model_epoch_100.pth", type=str, help="model path")
-parser.add_argument("--image", required=True, type=str, help="image name")
+parser.add_argument("--datapath", default="Set", type=str, help="path to the folder with images")
+parser.add_argument("--resultpath", default="Result", type=str, help="path to the folder with test results")
 parser.add_argument("--scale", default=4, type=int, help="scale factor, Default: 4")
 
 
@@ -46,46 +47,51 @@ if cuda and not torch.cuda.is_available():
 
 
 model = torch.load(opt.model)["model"]
-gt_image, input_img_th, baseline_img = load_img("Set/" + opt.image)
-
-psnr_bicubic = PSNR(baseline_img, gt_image, shave_border=opt.scale)
-input_img_th = Variable(torch.from_numpy(input_img_th).float()).view(1, input_img_th.shape[0], input_img_th.shape[1], input_img_th.shape[2])
-
 if cuda:
     model = model.cuda()
-    input_img_th = input_img_th.cuda()
 else:
     model = model.cpu()
 
-start_time = time.time()
-HR_2x, HR_4x = model(input_img_th)
-elapsed_time = time.time() - start_time
+for image_name in os.listdir(opt.datapath):
+    gt_image, input_img_th, baseline_img = load_img(os.path.join(opt.datapath, image_name))
 
-HR_4x = HR_4x.cpu()
+    psnr_bicubic = PSNR(baseline_img, gt_image, shave_border=opt.scale)
+    input_img_th = Variable(torch.from_numpy(input_img_th).float()).view(1, input_img_th.shape[0], input_img_th.shape[1], input_img_th.shape[2])
 
-output_img_th = HR_4x.data[0].numpy().astype(np.float32)
+    if cuda:
+        input_img_th = input_img_th.cuda()
 
-output_img_th[output_img_th<0] = 0
-output_img_th[output_img_th>255.] = 255.
+    start_time = time.time()
+    HR_2x, HR_4x = model(input_img_th)
+    elapsed_time = time.time() - start_time
 
-output_img = np.transpose(output_img_th, (1, 2, 0))
-psnr_predicted = PSNR(output_img, gt_image, shave_border=opt.scale)
+    HR_4x = HR_4x.cpu()
 
-print("Scale=",opt.scale)
-print("PSNR_predicted=", psnr_predicted)
-print("PSNR_bicubic=", psnr_bicubic)
-print("It takes {}s for processing".format(elapsed_time))
+    output_img_th = HR_4x.data[0].numpy().astype(np.float32)
+    output_img_th[output_img_th<0] = 0
+    output_img_th[output_img_th>255.] = 255.
 
-fig = plt.figure()
-ax = plt.subplot("131")
-ax.imshow(Image.fromarray(gt_image.astype(np.uint8), 'RGB'))
-ax.set_title("GT")
+    output_img = np.transpose(output_img_th, (1, 2, 0))
+    psnr_predicted = PSNR(output_img, gt_image, shave_border=opt.scale)
 
-ax = plt.subplot("132")
-ax.imshow(Image.fromarray(baseline_img.astype(np.uint8), 'RGB'))
-ax.set_title("Input(Bicubic)")
+    print("Image_name", image_name);
+    print("Scale",opt.scale)
+    print("PSNR_predicted", psnr_predicted)
+    print("PSNR_bicubic", psnr_bicubic)
+    print("It takes {}s for processing".format(elapsed_time))
+    print
 
-ax = plt.subplot("133")
-ax.imshow(Image.fromarray(output_img.astype(np.uint8), 'RGB'))
-ax.set_title("Output(LapSRN)")
-fig.savefig('Result/' + os.path.splitext(opt.image)[0] + '.png', dpi=200)
+    fig = plt.figure()
+    ax = plt.subplot("131")
+    ax.imshow(Image.fromarray(gt_image.astype(np.uint8), 'RGB'))
+    ax.set_title("GT")
+
+    ax = plt.subplot("132")
+    ax.imshow(Image.fromarray(baseline_img.astype(np.uint8), 'RGB'))
+    ax.set_title("Input(Bicubic)")
+
+    ax = plt.subplot("133")
+    ax.imshow(Image.fromarray(output_img.astype(np.uint8), 'RGB'))
+    ax.set_title("Output(LapSRN)")
+
+    fig.savefig(os.path.join(opt.resultpath, os.path.splitext(image_name)[0] + '.png'), dpi=200)
