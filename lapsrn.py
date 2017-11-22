@@ -59,10 +59,6 @@ class Net(nn.Module):
         self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F1 = self.make_layer(_Conv_Block)
 
-        self.convt_I2 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
-        self.convt_F2 = self.make_layer(_Conv_Block)
-
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -89,18 +85,13 @@ class Net(nn.Module):
         convt_R1 = self.convt_R1(convt_F1)
         HR_2x = convt_I1 + convt_R1
 
-        convt_F2 = self.convt_F2(convt_F1)
-        convt_I2 = self.convt_I2(HR_2x)
-        convt_R2 = self.convt_R2(convt_F2)
-        HR_4x = convt_I2 + convt_R2
-
-        return HR_2x, HR_4x
+        return HR_2x
 
 class L1_Charbonnier_loss(nn.Module):
     """L1 Charbonnierloss."""
     def __init__(self):
         super(L1_Charbonnier_loss, self).__init__()
-        self.eps = 1e-6
+        self.eps = 1e-3
 
     def forward(self, X, Y):
         diff = torch.add(X, -Y)

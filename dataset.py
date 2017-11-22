@@ -20,10 +20,9 @@ class DatasetFromHdf5(data.Dataset):
         hf = h5py.File(file_path)
         self.data = hf.get("data")
         self.label_x2 = hf.get("label_x2")
-        self.label_x4 = hf.get("label_x4")
 
     def __getitem__(self, index):
-        return torch.from_numpy(self.data[index,:,:,:]).float(), torch.from_numpy(self.label_x2[index,:,:,:]).float(), torch.from_numpy(self.label_x4[index,:,:,:]).float()
+        return torch.from_numpy(self.data[index,:,:,:]).float(), torch.from_numpy(self.label_x2[index,:,:,:]).float()
 
     def __len__(self):
         return self.data.shape[0]
@@ -36,7 +35,7 @@ class DatasetFromFolder(data.Dataset):
         self.images = os.listdir(path)
         self.label_size = 128, 128
         self.stride = 64
-        self.scale = 4
+        self.scale = 2
         self.downsizes = [1, 0.7, 0.5]
 
     def crop_grid(image):
@@ -57,7 +56,7 @@ class DatasetFromFolder(data.Dataset):
         width, height = image.size
         assert self.label_size[0] * 2 <= width and self.label_size[1] * 2 <= height
 
-        patch_size = (random.randint(self.label_size[0], self.label_size[0] * 2), ) * 2
+        patch_size = (random.randint(int(self.label_size[0] * 1.7), self.label_size[0] * 2), ) * 2
         patch_x, patch_y = tuple(random.randint(0, im - pt) for im, pt in zip(image.size, patch_size))
 
         image = image.resize(self.label_size, Image.BICUBIC)
@@ -69,11 +68,10 @@ class DatasetFromFolder(data.Dataset):
         image = image.convert('RGB')
 
         crop_image = self.crop_random(image)
-        label_x4 = convert_to_numpy(crop_image)
-        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
+        label_x2 = convert_to_numpy(crop_image)
         data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
 
-        return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float(), torch.from_numpy(label_x4).float()
+        return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float()
 
     def __len__(self):
         return len(self.images)

@@ -101,24 +101,20 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
 
     for iteration, batch in enumerate(training_data_loader, 1):
 
-        input, label_x2, label_x4 = Variable(batch[0]), Variable(batch[1], requires_grad=False), Variable(batch[2], requires_grad=False)
+        input, label_x2 = Variable(batch[0]), Variable(batch[1], requires_grad=False)
 
         if opt.cuda:
             input = input.cuda()
             label_x2 = label_x2.cuda()
-            label_x4 = label_x4.cuda()
 
-        HR_2x, HR_4x = model(input)
+        HR_2x = model(input)
 
         loss_x2 = criterion(HR_2x, label_x2)
-        loss_x4 = criterion(HR_4x, label_x4)
-        loss = loss_x2 + loss_x4
+        loss = loss_x2
 
         optimizer.zero_grad()
 
-        loss_x2.backward(retain_variables=True)
-
-        loss_x4.backward()
+        loss_x2.backward()
 
         optimizer.step()
 

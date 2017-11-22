@@ -16,7 +16,7 @@ parser.add_argument("--cuda", action="store_true", help="use cuda?")
 parser.add_argument("--model", default="model/model_epoch_100.pth", type=str, help="model path")
 parser.add_argument("--datapath", default="Set", type=str, help="path to the folder with images")
 parser.add_argument("--resultpath", default="Result", type=str, help="path to the folder with test results")
-parser.add_argument("--scale", default=4, type=int, help="scale factor, Default: 4")
+parser.add_argument("--scale", default=2, type=int, help="scale factor, Default: 2")
 
 
 def PSNR(pred, gt, shave_border=0):
@@ -62,11 +62,10 @@ for image_name in os.listdir(opt.datapath):
         input_img_th = input_img_th.cuda()
 
     start_time = time.time()
-    HR_2x, HR_4x = model(input_img_th)
+    HR_2x = model(input_img_th)
     elapsed_time = time.time() - start_time
 
     HR_2x = HR_2x.cpu()
-    HR_4x = HR_4x.cpu()
 
     output_img_th = HR_2x.data[0].numpy().astype(np.float32)
     output_img_th[output_img_th<0] = 0
