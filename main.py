@@ -13,14 +13,14 @@ from dataset import DatasetFromFolder
 parser = argparse.ArgumentParser(description="PyTorch LapSRN")
 parser.add_argument("--batchSize", type=int, default=64, help="training batch size")
 parser.add_argument("--nEpochs", type=int, default=100, help="number of epochs to train for")
+parser.add_argument("--ckEvery", type=int, default=10, help="save checkpoint every nth iteration, Default: 10")
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate. Default=1e-4")
 parser.add_argument("--step", type=int, default=100, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=100")
 parser.add_argument("--cuda", action="store_true", help="Use cuda?")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
 parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader to use, Default: 1")
-parser.add_argument("--momentum", default=0.9, type=float, help="Momentum, Default: 0.9")
-parser.add_argument("--weight-decay", "--wd", default=1e-4, type=float, help="weight decay, Default: 1e-4")
+parser.add_argument("--momentum", default=0.1, type=float, help="Momentum, Default: 0.1")
 parser.add_argument("--pretrained", default="", type=str, help="path to pretrained model (default: none)")
 parser.add_argument("--dataset", default="", type=str, help="path to learning dataset (default: none)")
 
@@ -82,11 +82,12 @@ def main():
     print("===> Training")
     for epoch in range(opt.start_epoch, opt.nEpochs + 1):
         train(training_data_loader, optimizer, model, criterion, epoch)
-        save_checkpoint(model, epoch)
+        if epoch % opt.ckEvery == 0:
+            save_checkpoint(model, epoch)
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 100 epochs"""
-    lr = opt.lr * (0.1 ** (epoch // opt.step))
+    lr = opt.lr * (opt.momentum ** (epoch // opt.step))
     return lr
 
 def train(training_data_loader, optimizer, model, criterion, epoch):

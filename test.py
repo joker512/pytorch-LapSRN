@@ -65,9 +65,10 @@ for image_name in os.listdir(opt.datapath):
     HR_2x, HR_4x = model(input_img_th)
     elapsed_time = time.time() - start_time
 
+    HR_2x = HR_2x.cpu()
     HR_4x = HR_4x.cpu()
 
-    output_img_th = HR_4x.data[0].numpy().astype(np.float32)
+    output_img_th = HR_2x.data[0].numpy().astype(np.float32)
     output_img_th[output_img_th<0] = 0
     output_img_th[output_img_th>255.] = 255.
 

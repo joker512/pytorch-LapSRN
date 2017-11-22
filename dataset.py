@@ -22,9 +22,9 @@ class DatasetFromHdf5(data.Dataset):
         self.label_x2 = hf.get("label_x2")
         self.label_x4 = hf.get("label_x4")
 
-    def __getitem__(self, index):            
+    def __getitem__(self, index):
         return torch.from_numpy(self.data[index,:,:,:]).float(), torch.from_numpy(self.label_x2[index,:,:,:]).float(), torch.from_numpy(self.label_x4[index,:,:,:]).float()
-        
+
     def __len__(self):
         return self.data.shape[0]
 
@@ -39,10 +39,7 @@ class DatasetFromFolder(data.Dataset):
         self.scale = 4
         self.downsizes = [1, 0.7, 0.5]
 
-    def __getitem__(self, index):
-        image_name = self.images[index]
-        image = Image.open(os.path.join(self.path, image_name))
-        image = image.convert('RGB')
+    def crop_grid(image):
         downsize = random.choice(self.downsizes)
         if downsize != 1:
             image = image.resize(self.label_size, Image.BICUBIC)
@@ -53,7 +50,25 @@ class DatasetFromFolder(data.Dataset):
         margin_left = width % self.stride // 2 + patch_x * self.stride
         margin_down = patch_y * self.stride
 
-        crop_image = image.crop((margin_left, margin_down, margin_left + self.label_size[0], margin_down + self.label_size[1]))
+        return image.crop((margin_left, margin_down, margin_left + self.label_size[0], margin_down + self.label_size[1]))
+
+    def crop_random(self, image):
+        assert self.label_size[0] == self.label_size[1]
+        width, height = image.size
+        assert self.label_size[0] * 2 <= width and self.label_size[1] * 2 <= height
+
+        patch_size = (random.randint(self.label_size[0], self.label_size[0] * 2), ) * 2
+        patch_x, patch_y = tuple(random.randint(0, im - pt) for im, pt in zip(image.size, patch_size))
+
+        image = image.resize(self.label_size, Image.BICUBIC)
+        return image.crop((patch_x, patch_y, patch_x + self.label_size[0], patch_y + self.label_size[1]))
+
+    def __getitem__(self, index):
+        image_name = self.images[index]
+        image = Image.open(os.path.join(self.path, image_name))
+        image = image.convert('RGB')
+
+        crop_image = self.crop_random(image)
         label_x4 = convert_to_numpy(crop_image)
         label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
         data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
