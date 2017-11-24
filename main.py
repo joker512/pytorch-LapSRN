@@ -43,8 +43,8 @@ def main():
     cudnn.benchmark = True
         
     print("===> Loading datasets")
-    train_set = DatasetFromFolder(opt.dataset)
-    training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True)
+    train_set = DatasetFromFolder(opt.dataset, opt.batchSize)
+    training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=False)
 
     print("===> Building model")
     model = Net()

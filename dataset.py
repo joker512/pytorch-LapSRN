@@ -30,10 +30,12 @@ class DatasetFromHdf5(data.Dataset):
 
 
 class DatasetFromFolder(data.Dataset):
-    def __init__(self, path):
+    def __init__(self, path, batch_size):
         super(DatasetFromFolder, self).__init__()
         self.path = path
+        self.batch_size = batch_size
         self.images = os.listdir(path)
+        random.shuffle(self.images)
         self.label_size = 128, 128
         self.stride = 64
         self.scale = 4
@@ -60,15 +62,17 @@ class DatasetFromFolder(data.Dataset):
         patch_size = (random.randint(self.label_size[0], self.label_size[0] * 2), ) * 2
         patch_x, patch_y = tuple(random.randint(0, im - pt) for im, pt in zip(image.size, patch_size))
 
-        image = image.resize(self.label_size, Image.BICUBIC)
-        return image.crop((patch_x, patch_y, patch_x + self.label_size[0], patch_y + self.label_size[1]))
+        crop_image = image.crop((patch_x, patch_y, patch_x + patch_size[0], patch_y + patch_size[1]))
+        return crop_image.resize(self.label_size, Image.BICUBIC)
 
     def __getitem__(self, index):
-        image_name = self.images[index]
-        image = Image.open(os.path.join(self.path, image_name))
-        image = image.convert('RGB')
+        if index % self.batch_size == 0:
+            image_name = self.images[index / self.batch_size]
+            self.image = Image.open(os.path.join(self.path, image_name))
+            self.image = self.image.convert('RGB')
+        assert hasattr(self, 'image')
 
-        crop_image = self.crop_random(image)
+        crop_image = self.crop_random(self.image)
         label_x4 = convert_to_numpy(crop_image)
         label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
         data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
@@ -76,4 +80,4 @@ class DatasetFromFolder(data.Dataset):
         return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float(), torch.from_numpy(label_x4).float()
 
     def __len__(self):
-        return len(self.images)
+        return len(self.images) * self.batch_size
