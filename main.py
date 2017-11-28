@@ -16,7 +16,8 @@ parser.add_argument("--nEpochs", type=int, default=100, help="number of epochs t
 parser.add_argument("--ckEvery", type=int, default=10, help="save checkpoint every nth iteration, Default: 10")
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate. Default=1e-4")
 parser.add_argument("--step", type=int, default=100, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=100")
-parser.add_argument("--cuda", action="store_true", help="Use cuda?")
+parser.add_argument("--cuda", action="store_true", help="Use cuda")
+parser.add_argument("--gpu", type=int, default=0, help="Use nth GPU (for cuda mode)")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
 parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader to use, Default: 1")
@@ -38,6 +39,7 @@ def main():
     print("Random Seed: ", opt.seed)
     torch.manual_seed(opt.seed)
     if cuda:
+        torch.cuda.set_device(opt.gpu)
         torch.cuda.manual_seed(opt.seed)
 
     cudnn.benchmark = True
