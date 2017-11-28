@@ -72,7 +72,7 @@ class DatasetFromFolder(data.Dataset):
         assert hasattr(self, 'image')
 
         crop_image = self.crop_random(self.image)
-        label_x2 = convert_to_numpy(crop_image)
+        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
         data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
 
         return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float()

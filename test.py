@@ -73,6 +73,7 @@ for image_name in os.listdir(opt.datapath):
 
     output_img = np.transpose(output_img_th, (1, 2, 0))
     psnr_predicted = PSNR(output_img, gt_image, shave_border=opt.scale)
+    prefix = os.path.join(opt.resultpath, os.path.splitext(image_name)[0])
 
     print("Image_name", image_name);
     print("Scale",opt.scale)
@@ -83,15 +84,21 @@ for image_name in os.listdir(opt.datapath):
 
     fig = plt.figure()
     ax = plt.subplot("131")
-    ax.imshow(Image.fromarray(gt_image.astype(np.uint8), 'RGB'))
+    gt_pil = Image.fromarray(gt_image.astype(np.uint8), 'RGB')
+    gt_pil.save(prefix + '_gt.png')
+    ax.imshow(gt_pil)
     ax.set_title("GT")
 
     ax = plt.subplot("132")
-    ax.imshow(Image.fromarray(baseline_img.astype(np.uint8), 'RGB'))
+    bl_pil = Image.fromarray(baseline_img.astype(np.uint8), 'RGB')
+    bl_pil.save(prefix + '_bl.png')
+    ax.imshow(bl_pil)
     ax.set_title("Input(Bicubic)")
 
     ax = plt.subplot("133")
-    ax.imshow(Image.fromarray(output_img.astype(np.uint8), 'RGB'))
+    out_pil = Image.fromarray(output_img.astype(np.uint8), 'RGB')
+    out_pil.save(prefix + '_out.png')
+    ax.imshow(out_pil)
     ax.set_title("Output(LapSRN)")
 
-    fig.savefig(os.path.join(opt.resultpath, os.path.splitext(image_name)[0] + '.png'), dpi=200)
+    fig.savefig(prefix + '.png', dpi=200)
