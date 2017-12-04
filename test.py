@@ -13,6 +13,7 @@ import os
 
 parser = argparse.ArgumentParser(description="PyTorch LapSRN Test")
 parser.add_argument("--cuda", action="store_true", help="use cuda?")
+parser.add_argument("--gpu", type=int, default=0, help="Use nth GPU (for cuda mode)")
 parser.add_argument("--model", default="model/model_epoch_100.pth", type=str, help="model path")
 parser.add_argument("--datapath", default="Set", type=str, help="path to the folder with images")
 parser.add_argument("--resultpath", default="Result", type=str, help="path to the folder with test results")
@@ -45,8 +46,11 @@ cuda = opt.cuda
 if cuda and not torch.cuda.is_available():
     raise Exception("No GPU found, please run without --cuda")
 
+if cuda:
+    torch.cuda.set_device(opt.gpu)
 
 model = torch.load(opt.model)["model"]
+
 if cuda:
     model = model.cuda()
 else:
