@@ -35,8 +35,8 @@ def load_img(name):
     gt_image = Image.open(name)
     gt_image = gt_image.convert('RGB')
     gt_image = gt_image.crop((0, 0) + tuple(ti - ti % opt.scale for ti in gt_image.size))
-    low_image = gt_image.resize(tuple(ti // opt.scale for ti in gt_image.size), Image.BICUBIC)
-    baseline_image = low_image.resize(gt_image.size, Image.BICUBIC)
+    low_image = gt_image.resize(tuple(ti // opt.scale for ti in gt_image.size), Image.LANCZOS)
+    baseline_image = low_image.resize(gt_image.size, Image.LANCZOS)
     return convert_to_numpy(gt_image, False), convert_to_numpy(low_image, True), convert_to_numpy(baseline_image, False)
 
 

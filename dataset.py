@@ -44,7 +44,7 @@ class DatasetFromFolder(data.Dataset):
     def crop_grid(image):
         downsize = random.choice(self.downsizes)
         if downsize != 1:
-            image = image.resize(self.label_size, Image.BICUBIC)
+            image = image.resize(self.label_size, Image.LANCZOS)
         width, height = image.size
         assert width >= self.label_size[0] and height >= self.label_size[1]
 
@@ -63,7 +63,7 @@ class DatasetFromFolder(data.Dataset):
         patch_x, patch_y = tuple(random.randint(0, im - pt) for im, pt in zip(image.size, patch_size))
 
         crop_image = image.crop((patch_x, patch_y, patch_x + patch_size[0], patch_y + patch_size[1]))
-        return crop_image.resize(self.label_size, Image.BICUBIC)
+        return crop_image.resize(self.label_size, Image.LANCZOS)
 
     def __getitem__(self, index):
         if index % self.batch_size == 0:
@@ -74,8 +74,8 @@ class DatasetFromFolder(data.Dataset):
 
         crop_image = self.crop_random(self.image)
         label_x4 = convert_to_numpy(crop_image)
-        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
-        data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
+        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.LANCZOS))
+        data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.LANCZOS))
 
         return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float(), torch.from_numpy(label_x4).float()
 
