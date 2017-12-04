@@ -21,9 +21,10 @@ class DatasetFromHdf5(data.Dataset):
         self.data = hf.get("data")
         self.label_x2 = hf.get("label_x2")
         self.label_x4 = hf.get("label_x4")
+        self.label_x8 = hf.get("label_x8")
 
     def __getitem__(self, index):
-        return torch.from_numpy(self.data[index,:,:,:]).float(), torch.from_numpy(self.label_x2[index,:,:,:]).float(), torch.from_numpy(self.label_x4[index,:,:,:]).float()
+        return torch.from_numpy(self.data[index,:,:,:]).float(), torch.from_numpy(self.label_x2[index,:,:,:]).float(), torch.from_numpy(self.label_x4[index,:,:,:]).float(), torch.from_numpy(self.label_x8[index,:,:,:]).float()
 
     def __len__(self):
         return self.data.shape[0]
@@ -36,9 +37,9 @@ class DatasetFromFolder(data.Dataset):
         self.batch_size = batch_size
         self.images = os.listdir(path)
         random.shuffle(self.images)
-        self.label_size = 128, 128
-        self.stride = 64
-        self.scale = 4
+        self.label_size = 256, 256
+        self.stride = 128
+        self.scale = 8
         self.downsizes = [1, 0.7, 0.5]
 
     def crop_grid(image):
@@ -73,11 +74,12 @@ class DatasetFromFolder(data.Dataset):
         assert hasattr(self, 'image')
 
         crop_image = self.crop_random(self.image)
-        label_x4 = convert_to_numpy(crop_image)
-        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.BICUBIC))
-        data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.BICUBIC))
+        label_x8 = convert_to_numpy(crop_image)
+        label_x4 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 4 for ti in self.label_size), Image.LANCZOS))
+        label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.LANCZOS))
+        data = convert_to_numpy(crop_image.resize(tuple(ti // self.scale for ti in self.label_size), Image.LANCZOS))
 
-        return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float(), torch.from_numpy(label_x4).float()
+        return torch.from_numpy(data).float(), torch.from_numpy(label_x2).float(), torch.from_numpy(label_x4).float(), torch.from_numpy(label_x8).float()
 
     def __len__(self):
         return len(self.images) * self.batch_size

@@ -63,6 +63,10 @@ class Net(nn.Module):
         self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F2 = self.make_layer(_Conv_Block)
 
+        self.convt_I3 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R3 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_F3 = self.make_layer(_Conv_Block)
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -94,7 +98,12 @@ class Net(nn.Module):
         convt_R2 = self.convt_R2(convt_F2)
         HR_4x = convt_I2 + convt_R2
 
-        return HR_2x, HR_4x
+        convt_F3 = self.convt_F3(convt_F2)
+        convt_I3 = self.convt_I3(HR_4x)
+        convt_R3 = self.convt_R3(convt_F3)
+        HR_8x = convt_I3 + convt_R3
+
+        return HR_2x, HR_4x, HR_8x
 
 class L1_Charbonnier_loss(nn.Module):
     """L1 Charbonnierloss."""
