@@ -45,7 +45,7 @@ class DatasetFromFolder(data.Dataset):
     def crop_grid(image):
         downsize = random.choice(self.downsizes)
         if downsize != 1:
-            image = image.resize(self.label_size, Image.BICUBIC)
+            image = image.resize(self.label_size, Image.LANCZOS)
         width, height = image.size
         assert width >= self.label_size[0] and height >= self.label_size[1]
 
@@ -64,7 +64,7 @@ class DatasetFromFolder(data.Dataset):
         patch_x, patch_y = tuple(random.randint(0, im - pt) for im, pt in zip(image.size, patch_size))
 
         crop_image = image.crop((patch_x, patch_y, patch_x + patch_size[0], patch_y + patch_size[1]))
-        return crop_image.resize(self.label_size, Image.BICUBIC)
+        return crop_image.resize(self.label_size, Image.LANCZOS)
 
     def __getitem__(self, index):
         if index % self.batch_size == 0:

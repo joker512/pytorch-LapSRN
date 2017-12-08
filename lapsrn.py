@@ -105,6 +105,40 @@ class Net(nn.Module):
 
         return HR_2x, HR_4x, HR_8x
 
+class Net4x(Net):
+    def __init__(self):
+        super(Net4x, self).__init__()
+
+    def forward(self, x):
+        out = self.relu(self.conv_input(x))
+
+        convt_F1 = self.convt_F1(out)
+        convt_I1 = self.convt_I1(x)
+        convt_R1 = self.convt_R1(convt_F1)
+        HR_2x = convt_I1 + convt_R1
+
+        convt_F2 = self.convt_F2(convt_F1)
+        convt_I2 = self.convt_I2(HR_2x)
+        convt_R2 = self.convt_R2(convt_F2)
+        HR_4x = convt_I2 + convt_R2
+
+        return HR_2x, HR_4x
+
+class Net2x(Net):
+    def __init__(self):
+        super(Net2x, self).__init__()
+
+    def forward(self, x):
+        out = self.relu(self.conv_input(x))
+
+        convt_F1 = self.convt_F1(out)
+        convt_I1 = self.convt_I1(x)
+        convt_R1 = self.convt_R1(convt_F1)
+        HR_2x = convt_I1 + convt_R1
+
+        return HR_2x
+
+
 class L1_Charbonnier_loss(nn.Module):
     """L1 Charbonnierloss."""
     def __init__(self):

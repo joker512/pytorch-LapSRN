@@ -9,6 +9,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
 from dataset import convert_to_numpy
+from lapsrn import Net2x, Net4x
 import os
 
 parser = argparse.ArgumentParser(description="PyTorch LapSRN Test")
@@ -18,6 +19,7 @@ parser.add_argument("--model", default="model/model_epoch_100.pth", type=str, he
 parser.add_argument("--datapath", default="Set", type=str, help="path to the folder with images")
 parser.add_argument("--resultpath", default="Result", type=str, help="path to the folder with test results")
 parser.add_argument("--scale", default=8, type=int, help="scale factor, Default: 8")
+parser.add_argument("--outscale", default=8, type=int, help="output scale factor, Default: 8")
 
 
 def PSNR(pred, gt, shave_border=0):
@@ -35,8 +37,9 @@ def load_img(name):
     gt_image = Image.open(name)
     gt_image = gt_image.convert('RGB')
     gt_image = gt_image.crop((0, 0) + tuple(ti - ti % opt.scale for ti in gt_image.size))
-    low_image = gt_image.resize(tuple(ti // opt.scale for ti in gt_image.size), Image.BICUBIC)
-    baseline_image = low_image.resize(gt_image.size, Image.BICUBIC)
+    low_image = gt_image.resize(tuple(ti // opt.scale for ti in gt_image.size), Image.LANCZOS)
+    gt_image = gt_image.resize(tuple(ti * opt.outscale // opt.scale for ti in gt_image.size), Image.LANCZOS)
+    baseline_image = low_image.resize(gt_image.size, Image.LANCZOS)
     return convert_to_numpy(gt_image, False), convert_to_numpy(low_image, True), convert_to_numpy(baseline_image, False)
 
 
@@ -49,12 +52,20 @@ if cuda and not torch.cuda.is_available():
 if cuda:
     torch.cuda.set_device(opt.gpu)
 
-model = torch.load(opt.model)["model"]
+model8 = torch.load(opt.model)["model"]
+model4 = Net4x()
+model4.load_state_dict(model8.state_dict())
+model2 = Net2x()
+model2.load_state_dict(model8.state_dict())
 
 if cuda:
-    model = model.cuda()
+    model8 = model8.cuda()
+    model4 = model4.cuda()
+    model2 = model2.cuda()
 else:
-    model = model.cpu()
+    model8 = model8.cpu()
+    model4 = model4.cpu()
+    model2 = model2.cpu()
 
 for image_name in os.listdir(opt.datapath):
     gt_image, input_img_th, baseline_img = load_img(os.path.join(opt.datapath, image_name))
@@ -66,14 +77,12 @@ for image_name in os.listdir(opt.datapath):
         input_img_th = input_img_th.cuda()
 
     start_time = time.time()
-    HR_2x, HR_4x, HR_8x = model(input_img_th)
+    HR = model8(input_img_th)[2] if opt.outscale == 8 else model4(input_img_th)[1] if opt.outscale == 4 else model2(input_img_th)
     elapsed_time = time.time() - start_time
 
-    HR_2x = HR_2x.cpu()
-    HR_4x = HR_4x.cpu()
-    HR_8x = HR_8x.cpu()
+    HR = HR.cpu()
 
-    output_img_th = HR_8x.data[0].numpy().astype(np.float32)
+    output_img_th = HR.data[0].numpy().astype(np.float32)
     output_img_th[output_img_th<0] = 0
     output_img_th[output_img_th>255.] = 255.
 
@@ -82,7 +91,7 @@ for image_name in os.listdir(opt.datapath):
     prefix = os.path.join(opt.resultpath, os.path.splitext(image_name)[0])
 
     print("Image_name", image_name);
-    print("Scale",opt.scale)
+    print("Scale", opt.scale)
     print("PSNR_predicted", psnr_predicted)
     print("PSNR_bicubic", psnr_bicubic)
     print("It takes {}s for processing".format(elapsed_time))
