@@ -74,6 +74,8 @@ class DatasetFromFolder(data.Dataset):
         assert hasattr(self, 'image')
 
         crop_image = self.crop_random(self.image)
+        if bool(random.getrandbits(1)):
+            crop_image = crop_image.transpose(Image.FLIP_LEFT_RIGHT)
         label_x8 = convert_to_numpy(crop_image)
         label_x4 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 4 for ti in self.label_size), Image.LANCZOS))
         label_x2 = convert_to_numpy(crop_image.resize(tuple(ti // self.scale * 2 for ti in self.label_size), Image.LANCZOS))
