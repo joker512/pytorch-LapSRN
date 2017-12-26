@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from lapsrn import Net, L1_Charbonnier_loss
+from lapsrn import Net, L1CharbonnierLoss, HighFrequencyLoss, MixedLoss
 from dataset import DatasetFromFolder
 
 # Training settings
@@ -50,7 +50,7 @@ def main():
 
     print("===> Building model")
     model = Net()
-    criterion = L1_Charbonnier_loss()
+    criterion = MixedLoss()
 
     print("===> Setting GPU")
     if cuda:
@@ -93,7 +93,6 @@ def adjust_learning_rate(optimizer, epoch):
     return lr
 
 def train(training_data_loader, optimizer, model, criterion, epoch):
-
     lr = adjust_learning_rate(optimizer, epoch-1)
 
     for param_group in optimizer.param_groups:
@@ -102,7 +101,6 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
     model.train()
 
     for iteration, batch in enumerate(training_data_loader, 1):
-
         input, label_x2, label_x4, label_x8 = Variable(batch[0]), Variable(batch[1], requires_grad=False), Variable(batch[2], requires_grad=False), Variable(batch[3], requires_grad=False)
 
         if opt.cuda:
@@ -113,22 +111,26 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
 
         HR_2x, HR_4x, HR_8x = model(input)
 
-        loss_x2 = criterion(HR_2x, label_x2)
-        loss_x4 = criterion(HR_4x, label_x4)
-        loss_x8 = criterion(HR_8x, label_x8)
-        loss = loss_x2 + loss_x4 + loss_x8
+        loss_cb_x2, loss_hfs_x2 = criterion(HR_2x, label_x2)
+        loss_cb_x4, loss_hfs_x4 = criterion(HR_4x, label_x4)
+        loss_cb_x8, loss_hfs_x8 = criterion(HR_8x, label_x8)
+        loss_cb = loss_cb_x2 + loss_cb_x4 + loss_cb_x8
+        loss_hfs = loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8
+
+        loss_x2 = loss_cb_x2 + loss_hfs_x2
+        loss_x4 = loss_cb_x4 + loss_hfs_x4
+        loss_x8 = loss_cb_x8 + loss_hfs_x8
 
         optimizer.zero_grad()
 
         loss_x2.backward(retain_variables=True)
         loss_x4.backward(retain_variables=True)
-
         loss_x8.backward()
 
         optimizer.step()
 
-        if iteration%100 == 0:
-            print("===> Epoch[{}]({}/{}): Loss: {:.10f}".format(epoch, iteration, len(training_data_loader), loss.data[0]))
+        if iteration % 100 == 0:
+            print("===> Epoch[{}]({}/{}): Charbonnier Loss: {:.4f}, HFS Loss: {:.4f}".format(epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0]))
 
 def save_checkpoint(model, epoch):
     model_folder = "model_adam/"

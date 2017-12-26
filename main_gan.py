@@ -1,21 +1,24 @@
 import argparse, os
 import torch
 import random
+import math
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from lapsrn_wgan import _netG, _netD, L1_Charbonnier_loss
+from lapsrn_wgan import Net, L1CharbonnierLoss, HighFrequencyLoss, MixedLoss
 from dataset import DatasetFromFolder
+from tensorboardX import SummaryWriter
+import torchvision.utils as vutils
 
 # Training settings
 parser = argparse.ArgumentParser(description="PyTorch LapSRN")
-parser.add_argument("--batchSize", type=int, default=64, help="training batch size")
-parser.add_argument("--nEpochs", type=int, default=100, help="number of epochs to train for")
-parser.add_argument("--ckEvery", type=int, default=10, help="save checkpoint every nth iteration, Default: 10")
-parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate. Default=1e-4")
-parser.add_argument("--step", type=int, default=100, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=100")
+parser.add_argument("--batchSize", type=int, default=32, help="training batch size")
+parser.add_argument("--nEpochs", type=int, default=50, help="number of epochs to train for")
+parser.add_argument("--ckEvery", type=float, default=1., help="save checkpoint every nth iteration, Default: 1")
+parser.add_argument("--lr", type=float, default=1e-5, help="Learning Rate. Default=1e-5")
+parser.add_argument("--step", type=int, default=5, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=5")
 parser.add_argument("--cuda", action="store_true", help="Use cuda")
 parser.add_argument("--gpu", type=int, default=0, help="Use nth GPU (for cuda mode)")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
@@ -25,8 +28,9 @@ parser.add_argument("--momentum", default=0.1, type=float, help="Momentum, Defau
 parser.add_argument("--pretrained", default="", type=str, help="path to pretrained model (default: none)")
 parser.add_argument("--dataset", default="", type=str, help="path to learning dataset (default: none)")
 
-def main():
+writer = SummaryWriter()
 
+def main():
     global opt, model 
     opt = parser.parse_args()
     print opt
@@ -50,7 +54,7 @@ def main():
 
     print("===> Building model")
     model = Net()
-    criterion = L1_Charbonnier_loss()
+    criterion = MixedLoss()
 
     print("===> Setting GPU")
     if cuda:
@@ -61,11 +65,16 @@ def main():
 
     # optionally resume from a checkpoint
     if opt.resume:
-        if os.path.isfile(opt.resume):
+        if os.path.isfile(opt.resume + "_gen.pth"):
             print("=> loading checkpoint '{}'".format(opt.resume))
-            checkpoint = torch.load(opt.resume)
-            opt.start_epoch = checkpoint["epoch"] + 1
-            model.load_state_dict(checkpoint["model"].state_dict())
+            checkpoint_gen = torch.load(opt.resume + "_gen.pth")
+            model.netg.load_state_dict(checkpoint_gen["model"].state_dict())
+            if os.path.isfile(opt.resume + "_disc.pth"):
+                checkpoint_disc = torch.load(opt.resume + "_disc.pth")
+                model.netd.load_state_dict(checkpoint_disc["model"].state_dict())
+            if not opt.start_epoch:
+                opt.start_epoch = checkpoint_gen["epoch"] + 1
+            print("=> start epoch {}".format(opt.start_epoch))
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
 
@@ -84,7 +93,7 @@ def main():
     print("===> Training")
     for epoch in range(opt.start_epoch, opt.nEpochs + 1):
         train(training_data_loader, optimizer, model, criterion, epoch)
-        if epoch % opt.ckEvery == 0:
+        if epoch % math.ceil(opt.ckEvery) == 0:
             save_checkpoint(model, epoch)
 
 def adjust_learning_rate(optimizer, epoch):
@@ -101,45 +110,103 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
     model.train()
 
     for iteration, batch in enumerate(training_data_loader, 1):
-        input, label_x2, label_x4 = Variable(batch[0]), Variable(batch[1], requires_grad=False), Variable(batch[2], requires_grad=False)
+        input, label_x2, label_x4, label_x8 = Variable(batch[0]), Variable(batch[1], requires_grad=False), Variable(batch[2], requires_grad=False), Variable(batch[3], requires_grad=False)
+
+        if iteration % 100 == 0:
+            input_grid = vutils.make_grid(input.data[0], normalize=True)
+            label_x2_grid = vutils.make_grid(label_x2.data[0], normalize=True)
+            label_x4_grid = vutils.make_grid(label_x4.data[0], normalize=True)
+            label_x8_grid = vutils.make_grid(label_x8.data[0], normalize=True)
+
+            writer.add_image('input', input_grid, iteration)
+            writer.add_image('2x label', label_x2_grid, iteration)
+            writer.add_image('4x label', label_x4_grid, iteration)
+            writer.add_image('8x label', label_x8_grid, iteration)
 
         if opt.cuda:
             input = input.cuda()
             label_x2 = label_x2.cuda()
             label_x4 = label_x4.cuda()
+            label_x8 = label_x8.cuda()
 
-        disc_fake, HR_2x, HR_4x = model(input)
-        disc_real = model.netd(label_x4)
+        disc_fake, HR_2x, HR_4x, HR_8x = model(input)
+        disc_real = model.netd(label_x8)
 
-        loss_x2 = criterion(HR_2x, label_x2)
-        loss_x4 = criterion(HR_4x, label_x4)
+        loss_cb_x2, loss_hfs_x2 = criterion(HR_2x, label_x2)
+        loss_cb_x4, loss_hfs_x4 = criterion(HR_4x, label_x4)
+        loss_cb_x8, loss_hfs_x8 = criterion(HR_8x, label_x8)
+        loss_cb = loss_cb_x2 + loss_cb_x4 + loss_cb_x8
+        loss_hfs = loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8
+
+        loss_x2 = loss_cb_x2 + loss_hfs_x2
+        loss_x4 = loss_cb_x4 + loss_hfs_x4
+        loss_x8 = loss_cb_x8 + loss_hfs_x8
+
         disc_loss = ((disc_real - 1.) ** 2 + (disc_fake - 0.) ** 2) / 2.
-        gan_loss = (disc_fake - 1.) ** 2
-        loss = loss_x2 + loss_x4
+        gen_loss = (disc_fake - 1.) ** 2
+        loss = loss_x2 + loss_x4 + loss_x8
 
         optimizer.zero_grad()
-        loss_x2.backward(retain_variables=True)
-        loss_x4.backward(retain_variables=True)
+        loss_cb_x2.backward(retain_graph=True)
+        loss_hfs_x2.backward(retain_graph=True)
+        loss_cb_x4.backward(retain_graph=True)
+        loss_hfs_x4.backward(retain_graph=True)
+        loss_cb_x8.backward(retain_graph=True)
+        loss_hfs_x8.backward(retain_graph=True)
+
+        learn_disc = iteration % 10 == 0
         for p in model.netd.parameters():
             p.requires_grad = False
-        gan_loss.backward()
+        gen_loss.backward(retain_graph=learn_disc)
         for p in model.netd.parameters():
             p.requires_grad = True
-        disc_loss.backward()
+
+        if learn_disc:
+            for p in model.netg.parameters():
+                p.requires_grad = False
+            disc_loss.backward()
+            for p in model.netg.parameters():
+                p.requires_grad = True
 
         optimizer.step()
 
-        if iteration%100 == 0:
-            print("===> Epoch[{}]({}/{}): Loss (2x + 4x): {:.5f}, DiscLoss: {:.5f}, GanLoss: {:.5f}".format(epoch, iteration, len(training_data_loader), loss.data[0], disc_loss.data[0], gan_loss.data[0]))
+        if iteration % 100 == 0:
+            writer.add_scalar('Charbonnier loss', loss_cb.data[0], iteration)
+            writer.add_scalar('HighFrequency loss', loss_hfs.data[0], iteration)
+            writer.add_scalar('Discriminator loss', disc_loss.data[0], iteration)
+            writer.add_scalar('Generator loss', gen_loss.data[0], iteration)
 
-def save_checkpoint(model, epoch):
+            HR_8x = HR_8x.cpu()
+            HR_8x = vutils.make_grid(HR_8x.data[0], normalize=True)
+            HR_4x = HR_4x.cpu()
+            HR_4x = vutils.make_grid(HR_4x.data[0], normalize=True)
+            HR_2x = HR_2x.cpu()
+            HR_2x = vutils.make_grid(HR_2x.data[0], normalize=True)
+
+            writer.add_image('8x result', HR_8x, iteration)
+            writer.add_image('4x result', HR_4x, iteration)
+            writer.add_image('2x result', HR_2x, iteration)
+
+            print("===> Epoch[{}]({}/{}): CharbLoss (2x+4x+8x): {:.4f}, HighFreqLoss (2x+4x+8x): {:.4f}, DiscLoss: {:.4f}, GenLoss: {:.4f}".format( \
+                    epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0], \
+                    disc_loss.data[0], gen_loss.data[0]))
+
+            if iteration == int(len(training_data_loader) * opt.ckEvery) and not opt.ckEvery.is_integer() :
+                save_checkpoint(model, epoch, iteration)
+
+def save_checkpoint(model, epoch, iteration=0):
     model_folder = "model_adam/"
-    model_out_path = model_folder + "model_epoch_{}.pth".format(epoch)
-    state = {"epoch": epoch ,"model": model}
+    if iteration == 0:
+        model_out_path = model_folder + "model_epoch_{}".format(epoch)
+    else:
+        model_out_path = model_folder + "model_epoch_{}_iter_{}".format(epoch, iteration)
+    state_gen = {"epoch": epoch ,"model": model.netg}
+    state_disc = {"epoch": epoch ,"model": model.netd}
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
 
-    torch.save(state, model_out_path)
+    torch.save(state_gen, model_out_path + "_gen.pth")
+    torch.save(state_disc, model_out_path + "_disc.pth")
     print("Checkpoint saved to {}".format(model_out_path))
 
 if __name__ == "__main__":
