@@ -11,23 +11,22 @@ from dataset import DatasetFromFolder
 
 # Training settings
 parser = argparse.ArgumentParser(description="PyTorch LapSRN")
-parser.add_argument("--batchSize", type=int, default=64, help="training batch size")
-parser.add_argument("--nEpochs", type=int, default=100, help="number of epochs to train for")
-parser.add_argument("--ckEvery", type=int, default=10, help="save checkpoint every nth iteration, Default: 10")
-parser.add_argument("--lr", type=float, default=1e-4, help="Learning Rate. Default=1e-4")
-parser.add_argument("--step", type=int, default=100, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=100")
+parser.add_argument("--batchSize", type=int, default=32, help="training batch size")
+parser.add_argument("--nEpochs", type=int, default=50, help="number of epochs to train for")
+parser.add_argument("--ckEvery", type=int, default=1., help="save checkpoint every nth iteration, Default: 1")
+parser.add_argument("--lr", type=float, default=1e-5, help="Learning Rate. Default=1e-5")
+parser.add_argument("--step", type=int, default=10, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=10")
 parser.add_argument("--cuda", action="store_true", help="Use cuda")
 parser.add_argument("--gpu", type=int, default=0, help="Use nth GPU (for cuda mode)")
 parser.add_argument("--resume", default="", type=str, help="Path to checkpoint (default: none)")
 parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch number (useful on restarts)")
 parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader to use, Default: 1")
 parser.add_argument("--momentum", default=0.1, type=float, help="Momentum, Default: 0.1")
-parser.add_argument("--pretrained", default="", type=str, help="path to pretrained model (default: none)")
 parser.add_argument("--dataset", default="", type=str, help="path to learning dataset (default: none)")
+parser.add_argument("--hfs_loss_weight", type=int, default=.1, help="High frequency loss weight (default: n=0.1)")
 
 def main():
-
-    global opt, model 
+    global opt, model
     opt = parser.parse_args()
     print opt
 
@@ -43,7 +42,7 @@ def main():
         torch.cuda.manual_seed(opt.seed)
 
     cudnn.benchmark = True
-        
+
     print("===> Loading datasets")
     train_set = DatasetFromFolder(opt.dataset, opt.batchSize)
     training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=False)
@@ -68,16 +67,7 @@ def main():
             model.load_state_dict(checkpoint["model"].state_dict())
         else:
             print("=> no checkpoint found at '{}'".format(opt.resume))
-            
-    # optionally copy weights from a checkpoint
-    if opt.pretrained:
-        if os.path.isfile(opt.pretrained):
-            print("=> loading model '{}'".format(opt.pretrained))
-            weights = torch.load(opt.pretrained)
-            model.load_state_dict(weights['model'].state_dict())
-        else:
-            print("=> no model found at '{}'".format(opt.pretrained)) 
-            
+
     print("===> Setting Optimizer")
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
 
@@ -88,7 +78,7 @@ def main():
             save_checkpoint(model, epoch)
 
 def adjust_learning_rate(optimizer, epoch):
-    """Sets the learning rate to the initial LR decayed by 10 every 100 epochs"""
+    """Sets the learning rate to the initial LR decayed by momentum every step epochs"""
     lr = opt.lr * (opt.momentum ** (epoch // opt.step))
     return lr
 
@@ -115,11 +105,11 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
         loss_cb_x4, loss_hfs_x4 = criterion(HR_4x, label_x4)
         loss_cb_x8, loss_hfs_x8 = criterion(HR_8x, label_x8)
         loss_cb = loss_cb_x2 + loss_cb_x4 + loss_cb_x8
-        loss_hfs = loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8
+        loss_hfs = opt.hfs_loss_weight * (loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8)
 
-        loss_x2 = loss_cb_x2 + loss_hfs_x2
-        loss_x4 = loss_cb_x4 + loss_hfs_x4
-        loss_x8 = loss_cb_x8 + loss_hfs_x8
+        loss_x2 = loss_cb_x2 + opt.hfs_loss_weight * loss_hfs_x2
+        loss_x4 = loss_cb_x4 + opt.hfs_loss_weight * loss_hfs_x4
+        loss_x8 = loss_cb_x8 + opt.hfs_loss_weight * loss_hfs_x8
 
         optimizer.zero_grad()
 
@@ -130,17 +120,17 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
         optimizer.step()
 
         if iteration % 100 == 0:
-            print("===> Epoch[{}]({}/{}): Charbonnier Loss: {:.4f}, HFS Loss: {:.4f}".format(epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0]))
+            print("===> Epoch[{}]({}/{}): Charbonnier Loss: {:.3f}, HFS Loss: {:.3f}".format( \
+                    epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0]))
 
 def save_checkpoint(model, epoch):
-    model_folder = "model_adam/"
-    model_out_path = model_folder + "model_epoch_{}.pth".format(epoch)
+    model_folder = "model_train/"
+    model_out_path = model_folder + "epoch_{}.pth".format(epoch)
     state = {"epoch": epoch ,"model": model}
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
 
     torch.save(state, model_out_path)
-
     print("Checkpoint saved to {}".format(model_out_path))
 
 if __name__ == "__main__":
