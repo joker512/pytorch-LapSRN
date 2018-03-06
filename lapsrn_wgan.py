@@ -72,7 +72,7 @@ class _Conv_Block(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
             nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(0.2, inplace=True)
         )
 
     def forward(self, x):
@@ -156,6 +156,25 @@ class Net4x(_netG):
 
         return HR_2x, HR_4x
 
+class Net4x_last(_netG):
+    def __init__(self):
+        super(Net4x_last, self).__init__()
+
+    def forward(self, x):
+        out = self.relu(self.conv_input(x))
+
+        convt_F2 = self.convt_F2(out)
+        convt_I2 = self.convt_I2(x)
+        convt_R2 = self.convt_R2(convt_F2)
+        HR_2x = convt_I2 + convt_R2
+
+        convt_F3 = self.convt_F3(convt_F2)
+        convt_I3 = self.convt_I3(HR_2x)
+        convt_R3 = self.convt_R3(convt_F3)
+        HR_4x = convt_I3 + convt_R3
+
+        return HR_2x, HR_4x
+
 class Net2x(_netG):
     def __init__(self):
         super(Net2x, self).__init__()
@@ -170,6 +189,19 @@ class Net2x(_netG):
 
         return HR_2x
 
+class Net2x_last(_netG):
+    def __init__(self):
+        super(Net2x_last, self).__init__()
+
+    def forward(self, x):
+        out = self.relu(self.conv_input(x))
+
+        convt_F3 = self.convt_F3(out)
+        convt_I3 = self.convt_I3(x)
+        convt_R3 = self.convt_R3(convt_F3)
+        HR_2x = convt_I3 + convt_R3
+
+        return HR_2x
 
 class _patchGan(nn.Module):
     def __init__(self, num_layers=3, average_output=False, filter_multiplier=1.0, kernel_size=3, padding='SAME'):
@@ -304,10 +336,20 @@ class Net(nn.Module):
         return out, HR_2x, HR_4x, HR_8x
 
 
-class L1CharbonnierLoss(nn.Module):
+class L1Loss(nn.Module):
     def __init__(self):
+        super(L1, self).__init__()
+
+    def forward(self, X, Y):
+        diff = torch.add(X, -Y)
+        size = X.size()
+        loss = torch.sum(diff) / (size[0] * size[1] * size[2] * size[3])
+        return loss
+
+class L1CharbonnierLoss(nn.Module):
+    def __init__(self, eps=1e-6):
         super(L1CharbonnierLoss, self).__init__()
-        self.eps = 1e-6
+        self.eps = eps
 
     def forward(self, X, Y):
         diff = torch.add(X, -Y)
@@ -317,14 +359,14 @@ class L1CharbonnierLoss(nn.Module):
         return loss
 
 class HighFrequencyLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, kernel=5, sigma=1.3):
         super(HighFrequencyLoss, self).__init__()
-        self.log_layer = LaplacianOfGaussian(5, 1.3)
+        self.log_layer = LaplacianOfGaussian(kernel, sigma)
 
     def forward(self, X, Y):
         diff = torch.add(X, -Y)
         error = self.log_layer(diff)
-        loss = (log_layer(generated_img - im_post) ** 2).mean()
+        loss = (error ** 2).mean()
         return loss
 
 class MixedLoss(nn.Module):
@@ -336,8 +378,8 @@ class MixedLoss(nn.Module):
     def forward(self, X, Y):
         diff = torch.add(X, -Y)
         error_cb = torch.sqrt( diff * diff + self.eps )
-        error_hfs = self.log_layer(diff)
+        error_hfs = torch.add(self.log_layer(X), -self.log_layer(Y))
         size = X.size()
         loss_cb = torch.sum(error_cb) / (size[0] * size[1] * size[2] * size[3])
-        loss_hfs = (self.log_layer(diff) ** 2).mean()
+        loss_hfs = (error_hfs ** 2).mean()
         return loss_cb, loss_hfs

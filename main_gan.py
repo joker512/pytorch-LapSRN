@@ -1,13 +1,16 @@
-import argparse, os
+#!/usr/bin/python2
+
+import argparse, os, sys
 import torch
 import random
 import math
+import signal
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from lapsrn_wgan import Net, L1CharbonnierLoss, HighFrequencyLoss, MixedLoss
+from lapsrn_wgan import Net, L1Loss, L1CharbonnierLoss, HighFrequencyLoss, MixedLoss
 from dataset import DatasetFromFolder
 from tensorboardX import SummaryWriter
 import torchvision.utils as vutils
@@ -26,11 +29,12 @@ parser.add_argument("--start-epoch", default=1, type=int, help="Manual epoch num
 parser.add_argument("--threads", type=int, default=1, help="Number of threads for data loader to use, Default: 1")
 parser.add_argument("--momentum", default=0.1, type=float, help="Momentum, Default: 0.1")
 parser.add_argument("--dataset", default="", type=str, help="path to learning dataset (default: none)")
-parser.add_argument("--hfs_loss_weight", type=int, default=.1, help="High frequency loss weight (default: n=0.1)")
+parser.add_argument("--hfs_loss_weight", type=float, default=.1, help="High frequency loss weight (default: n=0.1)")
+parser.add_argument("--cb_loss_weight", type=float, default=1., help="Last 2x Charbonnier loss (default: n=1)")
 parser.add_argument("--gen_loss_weight", type=int, default=10., help="Generator loss weight (default: n=10)")
 parser.add_argument("--train_disc_iter", type=int, default=2, help="Train discriminator each nth iteration (default: n=2)")
 
-writer = SummaryWriter()
+writer = SummaryWriter('runs')
 WRITE_DATA_ITER = 100
 
 def main():
@@ -112,10 +116,10 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             label_x4_grid = vutils.make_grid(label_x4.data[0], normalize=True)
             label_x8_grid = vutils.make_grid(label_x8.data[0], normalize=True)
 
-            writer.add_image('input', input_grid, iteration)
-            writer.add_image('2x label', label_x2_grid, iteration)
-            writer.add_image('4x label', label_x4_grid, iteration)
-            writer.add_image('8x label', label_x8_grid, iteration)
+            writer.add_image('5_lbl_1x', input_grid, iteration)
+            writer.add_image('4_lbl_2x', label_x2_grid, iteration)
+            writer.add_image('3_lbl_4x', label_x4_grid, iteration)
+            writer.add_image('1_lbl_8x', label_x8_grid, iteration)
 
         if opt.cuda:
             input = input.cuda()
@@ -123,18 +127,22 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             label_x4 = label_x4.cuda()
             label_x8 = label_x8.cuda()
 
-        disc_fake, HR_2x, HR_4x, HR_8x = model(input)
+        disc_fake, HR_x2, HR_x4, HR_x8 = model(input)
         disc_real = model.netd(label_x8)
 
-        loss_cb_x2, loss_hfs_x2 = criterion(HR_2x, label_x2)
-        loss_cb_x4, loss_hfs_x4 = criterion(HR_4x, label_x4)
-        loss_cb_x8, loss_hfs_x8 = criterion(HR_8x, label_x8)
+        loss_cb_x2, loss_hfs_x2 = criterion(HR_x2, label_x2)
+        loss_cb_x4, loss_hfs_x4 = criterion(HR_x4, label_x4)
+        loss_cb_x8, loss_hfs_x8 = criterion(HR_x8, label_x8)
         loss_cb = loss_cb_x2 + loss_cb_x4 + loss_cb_x8
         loss_hfs = opt.hfs_loss_weight * (loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8)
 
         loss_x2 = loss_cb_x2 + opt.hfs_loss_weight * loss_hfs_x2
         loss_x4 = loss_cb_x4 + opt.hfs_loss_weight * loss_hfs_x4
         loss_x8 = loss_cb_x8 + opt.hfs_loss_weight * loss_hfs_x8
+
+        if iteration % WRITE_DATA_ITER == 0:
+            label_hfs = criterion.log_layer(label_x8)
+            HR_hfs = criterion.log_layer(HR_x8)
 
         loss_disc = ((disc_real - 1.) ** 2 + (disc_fake - 0.) ** 2) / 2.
         loss_gen = opt.gen_loss_weight * ((disc_fake - 1.) ** 2)
@@ -160,22 +168,34 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
 
         optimizer.step()
 
+        def signal_handler(signal, frame):
+            save_checkpoint(model, epoch, iteration)
+            sys.exit(0)
+        signal.signal(signal.SIGINT, signal_handler)
+
         if iteration % WRITE_DATA_ITER == 0:
             writer.add_scalar('Charbonnier loss', loss_cb.data[0], iteration)
             writer.add_scalar('HighFrequency loss', loss_hfs.data[0], iteration)
             writer.add_scalar('Discriminator loss', loss_disc.data[0], iteration)
             writer.add_scalar('Generator loss', loss_gen.data[0], iteration)
 
-            HR_8x = HR_8x.cpu()
-            HR_8x = vutils.make_grid(HR_8x.data[0], normalize=True)
-            HR_4x = HR_4x.cpu()
-            HR_4x = vutils.make_grid(HR_4x.data[0], normalize=True)
-            HR_2x = HR_2x.cpu()
-            HR_2x = vutils.make_grid(HR_2x.data[0], normalize=True)
+            HR_x8 = HR_x8.cpu()
+            HR_x8 = vutils.make_grid(HR_x8.data[0], normalize=True)
+            HR_x4 = HR_x4.cpu()
+            HR_x4 = vutils.make_grid(HR_x4.data[0], normalize=True)
+            HR_x2 = HR_x2.cpu()
+            HR_x2 = vutils.make_grid(HR_x2.data[0], normalize=True)
 
-            writer.add_image('8x result', HR_8x, iteration)
-            writer.add_image('4x result', HR_4x, iteration)
-            writer.add_image('2x result', HR_2x, iteration)
+            writer.add_image('1_res_8x', HR_x8, iteration)
+            writer.add_image('3_res_4x', HR_x4, iteration)
+            writer.add_image('4_res_2x', HR_x2, iteration)
+
+            HR_hfs = HR_hfs.cpu()
+            HR_hfs = vutils.make_grid(HR_hfs.data[0], normalize=True)
+            writer.add_image('2_res_HFS', HR_hfs, iteration)
+            label_hfs = label_hfs.cpu()
+            label_hfs = vutils.make_grid(label_hfs.data[0], normalize=True)
+            writer.add_image('2_lbl_HFS', label_hfs, iteration)
 
             print("===> Epoch[{}]({}/{}): CharbLoss (2x+4x+8x): {:.3f}, HighFreqLoss (2x+4x+8x): {:.3f}, DiscLoss: {:.3f}, GenLoss: {:.3f}".format( \
                     epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0], \
