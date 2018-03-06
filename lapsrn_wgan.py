@@ -93,6 +93,10 @@ class MSLapSRN(nn.Module):
         self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
         self.convt_F2 = self.make_layer(_Conv_Block, False)
 
+        self.convt_I3 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
+        self.convt_R3 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
+        self.convt_F3 = self.make_layer(_Conv_Block, True)
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -176,9 +180,9 @@ class Net2x(MSLapSRN):
 
         return HR_2x, HR_gan
 
-class PatchGan(nn.Module):
+class _patchGan(nn.Module):
     def __init__(self, num_layers=3, average_output=False, filter_multiplier=1.0, kernel_size=3, padding='SAME'):
-        super(PatchGan, self).__init__()
+        super(_patchGan, self).__init__()
         self.num_layers = num_layers
         self.average_output = average_output
         self.filter_multiplier = filter_multiplier
@@ -298,7 +302,7 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         self.netg = MSLapSRN()
-        self.netd = PatchGan()
+        self.netd = _patchGan()
 
     def forward(self, input):
         HR_2x, HR_4x, HR_8x, HR_gan = self.netg(input)
