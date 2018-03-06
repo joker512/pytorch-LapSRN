@@ -61,12 +61,16 @@ def main():
 
     print("===> Building model")
     model = Net()
-    criterion = MixedLoss()
+    hfs_loss = HighFrequencyLoss(kernel=7)
+    cb_loss = L1CharbonnierLoss()
+    mixed_loss = MixedLoss(hfs_kernel=7)
 
     print("===> Setting GPU")
     if cuda:
         model = model.cuda()
-        criterion = criterion.cuda()
+        hfs_loss = hfs_loss.cuda()
+        cb_loss = cb_loss.cuda()
+        mixed_loss = mixed_loss.cuda()
     else:
         model = model.cpu()
 
@@ -88,18 +92,23 @@ def main():
     print("===> Setting Optimizer")
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
 
+    for block in [model.netg.conv_input, model.netg.convt_I1, model.netg.convt_R1, model.netg.convt_F1]:
+        for p in block.parameters():
+            p.requires_grad = False
+
     print("===> Training")
     for epoch in range(opt.start_epoch, opt.nEpochs + 1):
-        train(training_data_loader, optimizer, model, criterion, epoch)
+        train(training_data_loader, optimizer, model, cb_loss, hfs_loss, mixed_loss, epoch)
         if epoch % math.ceil(opt.ckEvery) == 0:
             save_checkpoint(model, epoch)
+
 
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by momentum every step epochs"""
     lr = opt.lr * (opt.momentum ** (epoch // opt.step))
     return lr
 
-def train(training_data_loader, optimizer, model, criterion, epoch):
+def train(training_data_loader, optimizer, model, cb_loss, hfs_loss, mixed_loss, epoch):
     lr = adjust_learning_rate(optimizer, epoch - 1)
 
     for param_group in optimizer.param_groups:
@@ -127,30 +136,26 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             label_x4 = label_x4.cuda()
             label_x8 = label_x8.cuda()
 
-        disc_fake, HR_x2, HR_x4, HR_x8 = model(input)
+        disc_fake, HR_x2, HR_x4, HR_x8, HR_gan = model(input)
         disc_real = model.netd(label_x8)
 
-        loss_cb_x2, loss_hfs_x2 = criterion(HR_x2, label_x2)
-        loss_cb_x4, loss_hfs_x4 = criterion(HR_x4, label_x4)
-        loss_cb_x8, loss_hfs_x8 = criterion(HR_x8, label_x8)
-        loss_cb = loss_cb_x2 + loss_cb_x4 + loss_cb_x8
-        loss_hfs = opt.hfs_loss_weight * (loss_hfs_x2 + loss_hfs_x4 + loss_hfs_x8)
 
-        loss_x2 = loss_cb_x2 + opt.hfs_loss_weight * loss_hfs_x2
-        loss_x4 = loss_cb_x4 + opt.hfs_loss_weight * loss_hfs_x4
-        loss_x8 = loss_cb_x8 + opt.hfs_loss_weight * loss_hfs_x8
+        loss_cb_gan, loss_hfs_gan = mixed_loss(HR_gan, label_x8)
 
         if iteration % WRITE_DATA_ITER == 0:
-            label_hfs = criterion.log_layer(label_x8)
-            HR_hfs = criterion.log_layer(HR_x8)
+            label_hfs = hfs_loss.log_layer(label_x8)
+            HR_hfs = hfs_loss.log_layer(HR_gan)
+
+        loss_cb = opt.cb_loss_weight * loss_cb_gan
+        loss_hfs = opt.hfs_loss_weight * loss_hfs_gan
 
         loss_disc = ((disc_real - 1.) ** 2 + (disc_fake - 0.) ** 2) / 2.
-        loss_gen = opt.gen_loss_weight * ((disc_fake - 1.) ** 2)
+        loss_gen = opt.gen_loss_weight * ((disc_fake - 1.) ** 2) + loss_cb + loss_hfs
 
         optimizer.zero_grad()
-        loss_x2.backward(retain_graph=True)
-        loss_x4.backward(retain_graph=True)
-        loss_x8.backward(retain_graph=True)
+
+        loss_cb.backward(retain_graph=True)
+        loss_hfs.backward(retain_graph=True)
 
         learn_disc = iteration % opt.train_disc_iter == 0
         for p in model.netd.parameters():
@@ -160,11 +165,13 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             p.requires_grad = True
 
         if learn_disc:
-            for p in model.netg.parameters():
-                p.requires_grad = False
+            for block in [model.netg.convt_F2, model.netg.convt_R2]:
+                for p in block.parameters():
+                    p.requires_grad = False
             loss_disc.backward()
-            for p in model.netg.parameters():
-                p.requires_grad = True
+            for block in [model.netg.convt_F2, model.netg.convt_R2]:
+                for p in block.parameters():
+                    p.requires_grad = True
 
         optimizer.step()
 
@@ -179,6 +186,8 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             writer.add_scalar('Discriminator loss', loss_disc.data[0], iteration)
             writer.add_scalar('Generator loss', loss_gen.data[0], iteration)
 
+            HR_gan = HR_gan.cpu()
+            HR_gan = vutils.make_grid(HR_gan.data[0], normalize=True)
             HR_x8 = HR_x8.cpu()
             HR_x8 = vutils.make_grid(HR_x8.data[0], normalize=True)
             HR_x4 = HR_x4.cpu()
@@ -186,6 +195,7 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             HR_x2 = HR_x2.cpu()
             HR_x2 = vutils.make_grid(HR_x2.data[0], normalize=True)
 
+            writer.add_image('1_res_gan', HR_gan, iteration)
             writer.add_image('1_res_8x', HR_x8, iteration)
             writer.add_image('3_res_4x', HR_x4, iteration)
             writer.add_image('4_res_2x', HR_x2, iteration)
@@ -200,6 +210,8 @@ def train(training_data_loader, optimizer, model, criterion, epoch):
             print("===> Epoch[{}]({}/{}): CharbLoss (2x+4x+8x): {:.3f}, HighFreqLoss (2x+4x+8x): {:.3f}, DiscLoss: {:.3f}, GenLoss: {:.3f}".format( \
                     epoch, iteration, len(training_data_loader), loss_cb.data[0], loss_hfs.data[0], \
                     loss_disc.data[0], loss_gen.data[0]))
+            print("===> Epoch[{}]({}/{}): DiscReal: {:.3f}, DiscFake: {:.3f}\n".format( \
+                    epoch, iteration, len(training_data_loader), disc_real.data[0], disc_fake.data[0]))
 
             if iteration == int(len(training_data_loader) * opt.ckEvery) and not opt.ckEvery.is_integer() :
                 save_checkpoint(model, epoch, iteration)

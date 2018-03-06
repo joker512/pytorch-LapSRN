@@ -70,8 +70,6 @@ class _Conv_Block(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True)
         )
 
@@ -80,24 +78,20 @@ class _Conv_Block(nn.Module):
         return output
 
 
-class _netG(nn.Module):
+class MSLapSRN(nn.Module):
     def __init__(self):
-        super(_netG, self).__init__()
+        super(MSLapSRN, self).__init__()
 
         self.conv_input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
         self.convt_I1 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
         self.convt_R1 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
-        self.convt_F1 = self.make_layer(_Conv_Block)
+        self.convt_F1 = self.make_layer(_Conv_Block, True)
 
         self.convt_I2 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
         self.convt_R2 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
-        self.convt_F2 = self.make_layer(_Conv_Block)
-
-        self.convt_I3 = nn.ConvTranspose2d(in_channels=3, out_channels=3, kernel_size=4, stride=2, padding=1, bias=False)
-        self.convt_R3 = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
-        self.convt_F3 = self.make_layer(_Conv_Block)
+        self.convt_F2 = self.make_layer(_Conv_Block, False)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -112,9 +106,12 @@ class _netG(nn.Module):
                 if m.bias is not None:
                     m.bias.data.zero_()
 
-    def make_layer(self, block):
+    def make_layer(self, block, with_transpose = True):
         layers = []
         layers.append(block())
+        if with_transpose:
+            layers.append(nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -125,19 +122,22 @@ class _netG(nn.Module):
         convt_R1 = self.convt_R1(convt_F1)
         HR_2x = convt_I1 + convt_R1
 
+        convt_F1 = self.convt_F1(convt_F1)
+        convt_I1 = self.convt_I1(HR_2x)
+        convt_R1 = self.convt_R1(convt_F1)
+        HR_4x = convt_I1 + convt_R1
+
+        convt_F1 = self.convt_F1(convt_F1)
+        convt_I1 = self.convt_I1(HR_4x)
+        convt_R1 = self.convt_R1(convt_F1)
+        HR_8x = convt_I1 + convt_R1
+
         convt_F2 = self.convt_F2(convt_F1)
-        convt_I2 = self.convt_I2(HR_2x)
-        convt_R2 = self.convt_R2(convt_F2)
-        HR_4x = convt_I2 + convt_R2
+        HR_gan = self.convt_R2(convt_F2) + HR_8x
 
-        convt_F3 = self.convt_F3(convt_F2)
-        convt_I3 = self.convt_I3(HR_4x)
-        convt_R3 = self.convt_R3(convt_F3)
-        HR_8x = convt_I3 + convt_R3
+        return HR_2x, HR_4x, HR_8x, HR_gan
 
-        return HR_2x, HR_4x, HR_8x
-
-class Net4x(_netG):
+class Net4x(MSLapSRN):
     def __init__(self):
         super(Net4x, self).__init__()
 
@@ -149,33 +149,17 @@ class Net4x(_netG):
         convt_R1 = self.convt_R1(convt_F1)
         HR_2x = convt_I1 + convt_R1
 
+        convt_F1 = self.convt_F1(convt_F1)
+        convt_I1 = self.convt_I1(HR_2x)
+        convt_R1 = self.convt_R1(convt_F1)
+        HR_4x = convt_I1 + convt_R1
+
         convt_F2 = self.convt_F2(convt_F1)
-        convt_I2 = self.convt_I2(HR_2x)
-        convt_R2 = self.convt_R2(convt_F2)
-        HR_4x = convt_I2 + convt_R2
+        HR_gan = self.convt_R2(convt_F2) + HR_4x
 
-        return HR_2x, HR_4x
+        return HR_2x, HR_4x, HR_gan
 
-class Net4x_last(_netG):
-    def __init__(self):
-        super(Net4x_last, self).__init__()
-
-    def forward(self, x):
-        out = self.relu(self.conv_input(x))
-
-        convt_F2 = self.convt_F2(out)
-        convt_I2 = self.convt_I2(x)
-        convt_R2 = self.convt_R2(convt_F2)
-        HR_2x = convt_I2 + convt_R2
-
-        convt_F3 = self.convt_F3(convt_F2)
-        convt_I3 = self.convt_I3(HR_2x)
-        convt_R3 = self.convt_R3(convt_F3)
-        HR_4x = convt_I3 + convt_R3
-
-        return HR_2x, HR_4x
-
-class Net2x(_netG):
+class Net2x(MSLapSRN):
     def __init__(self):
         super(Net2x, self).__init__()
 
@@ -187,25 +171,14 @@ class Net2x(_netG):
         convt_R1 = self.convt_R1(convt_F1)
         HR_2x = convt_I1 + convt_R1
 
-        return HR_2x
+        convt_F2 = self.convt_F2(convt_F1)
+        HR_gan = self.convt_R2(convt_F2) + HR_2x
 
-class Net2x_last(_netG):
-    def __init__(self):
-        super(Net2x_last, self).__init__()
+        return HR_2x, HR_gan
 
-    def forward(self, x):
-        out = self.relu(self.conv_input(x))
-
-        convt_F3 = self.convt_F3(out)
-        convt_I3 = self.convt_I3(x)
-        convt_R3 = self.convt_R3(convt_F3)
-        HR_2x = convt_I3 + convt_R3
-
-        return HR_2x
-
-class _patchGan(nn.Module):
+class PatchGan(nn.Module):
     def __init__(self, num_layers=3, average_output=False, filter_multiplier=1.0, kernel_size=3, padding='SAME'):
-        super(_patchGan, self).__init__()
+        super(PatchGan, self).__init__()
         self.num_layers = num_layers
         self.average_output = average_output
         self.filter_multiplier = filter_multiplier
@@ -228,17 +201,14 @@ class _patchGan(nn.Module):
             nn.Conv2d(in_channels=4*num_filters, out_channels=8*num_filters, kernel_size=3, stride=2, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
 
-            #nn.Conv2d(in_channels=8*num_filters, out_channels=16*num_filters, kernel_size=3, stride=1, padding=1, bias=False),
-            #nn.LeakyReLU(0.2, inplace=True),
-
             nn.Conv2d(in_channels=8*num_filters, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False),
 
-            nn.AvgPool3d(kernel_size=(1, 16, 16), stride=(1, 1, 1))
+            nn.AvgPool3d(kernel_size=(1, 16, 16), stride=(1, 1, 1)),
+            nn.Sigmoid()
         )
 
     def forward(self, input):
         out = self.features(input)
-        #out = nn.AvgPool3d(out, kernel_size=out.size()[1:]).view(out.size()[0], -1)
         out = out.mean(0)
 
         return out.view(1)
@@ -327,13 +297,13 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
 
-        self.netg = _netG()
-        self.netd = _patchGan()
+        self.netg = MSLapSRN()
+        self.netd = PatchGan()
 
     def forward(self, input):
-        HR_2x, HR_4x, HR_8x = self.netg(input)
-        out = self.netd(HR_8x)
-        return out, HR_2x, HR_4x, HR_8x
+        HR_2x, HR_4x, HR_8x, HR_gan = self.netg(input)
+        out = self.netd(HR_gan)
+        return out, HR_2x, HR_4x, HR_8x, HR_gan
 
 
 class L1Loss(nn.Module):
