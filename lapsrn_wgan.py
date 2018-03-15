@@ -215,6 +215,7 @@ class _patchGan(nn.Module):
             raise ValueError("You cannot use VALID padding with an even kernel size.")
 
         num_filters = int(self.filter_multiplier * 64)
+
         self.features = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=3, stride=2, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
@@ -228,20 +229,20 @@ class _patchGan(nn.Module):
             nn.Conv2d(in_channels=4*num_filters, out_channels=8*num_filters, kernel_size=3, stride=2, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
 
-            #nn.Conv2d(in_channels=8*num_filters, out_channels=16*num_filters, kernel_size=3, stride=1, padding=1, bias=False),
-            #nn.LeakyReLU(0.2, inplace=True),
-
             nn.Conv2d(in_channels=8*num_filters, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False),
 
             nn.AvgPool3d(kernel_size=(1, 16, 16), stride=(1, 1, 1))
         )
 
     def forward(self, input):
-        out = self.features(input)
-        #out = nn.AvgPool3d(out, kernel_size=out.size()[1:]).view(out.size()[0], -1)
-        out = out.mean(0)
+        perceptuals = []
+        for i in xrange(len(self.features) / 2):
+            input = self.features[2 * i](input)
+            input = self.features[2 * i + 1](input)
+            perceptuals.append(input)
+        output = perceptuals[-1].mean(0).view(1)
 
-        return out.view(1)
+        return perceptuals[:-1], output
 
 class _netD(nn.Module):
     def __init__(self):
@@ -332,16 +333,16 @@ class Net(nn.Module):
 
     def forward(self, input):
         HR_2x, HR_4x, HR_8x = self.netg(input)
-        out = self.netd(HR_8x)
-        return out, HR_2x, HR_4x, HR_8x
+        perceptuals, out = self.netd(HR_8x)
+        return perceptuals, out, HR_2x, HR_4x, HR_8x
 
 
 class L1Loss(nn.Module):
     def __init__(self):
-        super(L1, self).__init__()
+        super(L1Loss, self).__init__()
 
     def forward(self, X, Y):
-        diff = torch.add(X, -Y)
+        diff = torch.abs(torch.add(X, -Y))
         size = X.size()
         loss = torch.sum(diff) / (size[0] * size[1] * size[2] * size[3])
         return loss
